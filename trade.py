@@ -66,6 +66,8 @@ if __name__ == '__main__':
         time.sleep(1)
         # 公共-获取合约标记价格 （20次/2s）
         market_price = service.get_market_price(service.category, service.ok_symbol)
+        randint = random.randint(-20, 20)
+        market_price += randint
         logging.info('标记价格 = %s' % market_price)
         if market_price > 0:
             # taker
@@ -88,8 +90,7 @@ if __name__ == '__main__':
             while mn <= service.maker_number:
                 try:
                     m = random.randint(1, 5000)
-                    rn = random.randint(-20, 20)
-                    ap = market_price + mn + rn
+                    ap = market_price + mn
                     ask = service.trade.create_limit_order(service.kumex_symbol, 'sell', '1', m, ap)
                     logging.info('在合约 %s 以数量= %s,价格= %s,创建了卖单,卖单ID = %s' %
                                  (service.kumex_symbol, m, ap, ask['orderId']))
@@ -98,8 +99,7 @@ if __name__ == '__main__':
                     continue
                 try:
                     m = random.randint(1, 5000)
-                    rn = random.randint(-20, 20)
-                    bp = market_price - mn + rn
+                    bp = market_price - mn
                     bid = service.trade.create_limit_order(service.kumex_symbol, 'buy', '1', m, bp)
                     logging.info('在合约 %s 以数量= %s,价格= %s,创建了买单,卖单ID = %s' %
                                  (service.kumex_symbol, m, bp, bid['orderId']))
