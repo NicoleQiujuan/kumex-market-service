@@ -1,0 +1,15 @@
+{
+  "ok_api_key" : "",
+  "ok_secret_key" : "",
+  "ok_pass_phrase" : "",
+  "kumex_api_key" : "",
+  "kumex_secret_key" : "",
+  "kumex_pass_phrase" : "",
+  "is_sandbox" : true,
+  "ok_symbol" : "",
+  "kumex_symbol" : "",
+  "category" : "",
+  "interval" : 0.5,
+  "maker_number" : 20,
+  "taker_number" : 5
+}
