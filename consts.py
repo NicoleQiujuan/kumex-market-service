@@ -1,6 +1,8 @@
 # global
 CONFIG_FILE = 'config.json'
 LOG_FILE = 'log.log'
+TAKER = 'taker'
+MAKER = 'maker'
 
 # okex contract type
 SWAP = 'SWAP'
