@@ -8,7 +8,7 @@ import time
 import random
 import logging
 import consts as c
-from kumex.client import Trade
+from kumex.client import Trade, Market
 import okex.swap_api as swap
 import okex.futures_api as future
 
@@ -41,7 +41,7 @@ class Kumex(object):
         self.taker_number = config['taker_number']
         self.side = config['side']
         self.sizeMin = 100
-        self.sizeMax = 100000
+        self.sizeMax = 10000
         # OK 永续合约API
         self.swapAPI = swap.SwapAPI(self.ok_api_key, self.ok_secret_key, self.ok_pass_phrase)
         # OK 交割合约
@@ -56,6 +56,8 @@ class Kumex(object):
 
         self.trade = Trade(self.kumex_api_key, self.kumex_secret_key, self.kumex_pass_phrase,
                            is_sandbox=self.is_sandbox)
+        self.market = Market(self.kumex_api_key, self.kumex_secret_key, self.kumex_pass_phrase,
+                             is_sandbox=self.is_sandbox)
 
     def get_market_price(self):
         r = {}
@@ -72,31 +74,52 @@ class Kumex(object):
         # logging.info('最新卖一价格 = %s' % self.best_ask)
         self.best_bid = int(float(r['best_bid']))
         # logging.info('最新买一价格 = %s' % self.best_bid)
-        self.market_price = int((self.best_ask+self.best_bid) / 2)
+        self.market_price = int((self.best_ask + self.best_bid) / 2)
         logging.info('最新盘口价格 = %s' % self.market_price)
 
     def taker(self):
+        best_bid_size = 0
+        best_bid_price = 0
+        best_ask_size = 0
+        best_ask_price = 0
+        best_flag = 0
         try:
-            t = random.randint(self.sizeMin, self.sizeMax)
-            sell = self.trade.create_market_order(self.kumex_symbol, 'sell', '1', type='market', size=t)
-            logging.info('在合约 %s 以数量= %s 吃卖单,订单ID = %s' %
-                         (self.kumex_symbol, t, sell['orderId']))
+            t = self.market.get_ticker(self.kumex_symbol)
+            # logging.info(t)
+            best_bid_size = t['bestBidSize']
+            best_bid_price = t['bestBidPrice']
+            best_ask_size = t['bestAskSize']
+            best_ask_price = t['bestAskPrice']
+            max_size = 100000
+            if best_bid_size > max_size:
+                best_bid_size = max_size
+            if best_ask_size > max_size:
+                best_ask_size = max_size
+            best_flag = 1
         except Exception as e:
+            best_flag = 0
             logging.error(e)
-        try:
-            t = random.randint(self.sizeMin, self.sizeMax)
-            buy = self.trade.create_market_order(self.kumex_symbol, 'buy', '1', type='market', size=t)
-            logging.info('在合约 %s 以数量= %s 吃买单,订单ID = %s' %
-                         (self.kumex_symbol, t, buy['orderId']))
-        except Exception as e:
-            logging.error(e)
+
+        if best_flag > 0:
+            try:
+                sell = self.trade.create_limit_order(self.kumex_symbol, 'sell', '5', best_ask_size, best_ask_price)
+                logging.info('在合约 %s 以数量= %s, 价格= %s, 吃卖单,订单ID = %s' %
+                             (self.kumex_symbol, best_ask_size, best_ask_price, sell['orderId']))
+            except Exception as e:
+                logging.error(e)
+            try:
+                buy = self.trade.create_limit_order(self.kumex_symbol, 'buy', '5', best_bid_size, best_bid_price)
+                logging.info('在合约 %s 以数量= %s, 价格= %s, 吃买单,订单ID = %s' %
+                             (self.kumex_symbol, best_bid_size, best_bid_price, buy['orderId']))
+            except Exception as e:
+                logging.error(e)
 
     def ask_maker(self, p):
         try:
             m = random.randint(self.sizeMin, self.sizeMax)
             ask = self.trade.create_limit_order(self.kumex_symbol, 'sell', '5', m, p)
-            logging.info('当前盘口价格 = %s,在合约 %s 以数量= %s,价格= %s,创建了卖单,卖单ID = %s' %
-                         (self.market_price, self.kumex_symbol, m, p, ask['orderId']))
+            # logging.info('当前盘口价格 = %s,在合约 %s 以数量= %s,价格= %s,创建了卖单,卖单ID = %s' %
+            #              (self.market_price, self.kumex_symbol, m, p, ask['orderId']))
             self.sell_list[p] = {
                 'price': p,
                 'side': 'sell',
@@ -110,8 +133,8 @@ class Kumex(object):
         try:
             m = random.randint(self.sizeMin, self.sizeMax)
             bid = self.trade.create_limit_order(self.kumex_symbol, 'buy', '5', m, p)
-            logging.info('当前盘口价格 = %s,在合约 %s 以数量= %s,价格= %s,创建了买单,卖单ID = %s' %
-                         (self.market_price, self.kumex_symbol, m, p, bid['orderId']))
+            # logging.info('当前盘口价格 = %s,在合约 %s 以数量= %s,价格= %s,创建了买单,卖单ID = %s' %
+            #              (self.market_price, self.kumex_symbol, m, p, bid['orderId']))
             self.sell_list[p] = {
                 'price': p,
                 'side': 'buy',
@@ -124,7 +147,7 @@ class Kumex(object):
     def cancel_order(self, order_id, key):
         try:
             self.trade.cancel_order(order_id)
-            logging.info('撤单 id = %s, key = %s' % (order_id, key))
+            # logging.info('当前盘口价 = %s,撤单 id = %s, key = %s' % (self.market_price, order_id, key))
         except Exception as e:
             logging.info('order_id = %s, key = %s' % (order_id, key))
             logging.error(e)
@@ -148,6 +171,7 @@ class Kumex(object):
             self.sell_list.clear()
             self.buy_list.clear()
             for n in os:
+                # print(json.dumps(n))
                 if n['side'] == 'sell':
                     self.sell_list[int(n['price'])] = {
                         'price': int(n['price']),
@@ -179,8 +203,9 @@ if __name__ == '__main__':
         else:
             service.get_market_price()
             service.get_active_orders()
-            logging.info('len(service.sell_list) = %s' % len(service.sell_list))
-            logging.info(service.sell_list)
+            # break
+            # logging.info('sell maker 1 len(service.sell_list) = %s' % len(service.sell_list))
+            # logging.info(service.sell_list)
             # 价格浮动
             rand = random.randint(-20, 20)
             # service.market_price += rand
@@ -195,6 +220,8 @@ if __name__ == '__main__':
                     cancel_order.start()
                     # service.cancel_order(v['order_id'], k)
             service.mutex.release()
+            # logging.info('sell maker 2 len(service.sell_list) = %s' % len(service.sell_list))
+            # logging.info(service.sell_list)
             # logging.info('after cancel ---')
             # logging.info(service.sell_list)
 
@@ -240,7 +267,11 @@ if __name__ == '__main__':
                     # service.ask_maker(ask_price)
             # logging.info('end cancel ---')
             # logging.info(service.sell_list)
+            # logging.info('sell maker 3 len(service.sell_list) = %s' % len(service.sell_list))
+            # logging.info(service.sell_list)
 
+            # logging.info('buy maker 1 len(service.buy_list) = %s' % len(service.buy_list))
+            # logging.info(service.buy_list)
             bid_rand = service.market_price - 20
             service.mutex.acquire()
             for k, v in list(service.buy_list.items()):
@@ -250,8 +281,10 @@ if __name__ == '__main__':
                     cancel_order = threading.Thread(target=service.cancel_order, args=(v['order_id'], k,))
                     cancel_order.start()
             service.mutex.release()
+            # logging.info('buy maker 2 len(service.buy_list) = %s' % len(service.buy_list))
+            # logging.info(service.buy_list)
             for i in range(1, service.maker_number):
-                bid_price = service.market_price - i
+                bid_price = service.market_price - i + 1
                 if bid_price in service.buy_list.keys():
                     orderId = service.buy_list[bid_price]['order_id']
                     order_info = service.get_order_info(orderId)
@@ -281,3 +314,5 @@ if __name__ == '__main__':
                     bid_order = threading.Thread(target=service.bid_maker, args=(bid_price,))
                     bid_order.start()
                     service.mutex.release()
+            # logging.info('buy maker 3 len(service.buy_list) = %s' % len(service.buy_list))
+            # logging.info(service.buy_list)
