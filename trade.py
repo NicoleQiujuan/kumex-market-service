@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
-import threading
-from multiprocessing import Process
+from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 import time
 import random
 import logging
@@ -52,7 +51,6 @@ class Kumex(object):
         self.best_ask = 0
         self.best_bid = 0
         self.market_price = 0
-        self.mutex = threading.Lock()
 
         self.trade = Trade(self.kumex_api_key, self.kumex_secret_key, self.kumex_pass_phrase,
                            is_sandbox=self.is_sandbox)
@@ -79,13 +77,13 @@ class Kumex(object):
 
     def taker(self):
         best_bid_size = 0
-        best_bid_price = 0
+        # best_bid_price = 0
         best_ask_size = 0
-        best_ask_price = 0
+        # best_ask_price = 0
         best_flag = 0
         try:
             t = self.market.get_ticker(self.kumex_symbol)
-            logging.info(t)
+            # logging.info(t)
             best_bid_size = t['bestBidSize']
             # best_bid_price = t['bestBidPrice']
             best_ask_size = t['bestAskSize']
@@ -99,7 +97,8 @@ class Kumex(object):
         except Exception as e:
             best_flag = 0
             logging.error(e)
-            time.sleep(5)
+            # time.sleep(5)
+            return
 
         if best_flag > 0:
             try:
@@ -145,10 +144,14 @@ class Kumex(object):
         except Exception as e:
             logging.error(e)
 
-    def cancel_order(self, order_id, key):
+    def cancel_order(self, order_id, key, side):
         try:
             self.trade.cancel_order(order_id)
             logging.info('当前盘口价 = %s,撤单 id = %s, key = %s' % (self.market_price, order_id, key))
+            if side == 'sell':
+                del self.sell_list[key]
+            elif side == 'buy':
+                del self.buy_list[key]
         except Exception as e:
             logging.info('order_id = %s, key = %s' % (order_id, key))
             logging.error(e)
@@ -194,21 +197,21 @@ if __name__ == '__main__':
     logging.info('---------------------------------------')
     logging.info('Service Start ......')
     service = Kumex()
+    executor = ThreadPoolExecutor(max_workers=10)
+    all_task = []
     while 1:
         service.get_market_price()
         service.taker()
         service.get_active_orders()
-        # 价格浮动
-        # rand = random.randint(-20, 20)
-        # service.market_price += rand
         ask_rand = service.market_price + service.maker_number - 1
         for k, v in list(service.sell_list.items()):
             # 判断范围，不在范围内的单撤掉
             if k not in range(service.market_price, ask_rand) and k in service.sell_list.keys():
-                service.cancel_order(v['order_id'], k)
-
-                del service.sell_list[k]
-
+                task = executor.submit(service.cancel_order, v['order_id'], k, 'sell')
+                all_task.append(task)
+                # service.cancel_order(v['order_id'], k)
+        wait(all_task, return_when=ALL_COMPLETED)
+        all_task.clear()
         for i in range(1, service.maker_number):
             ask_price = service.market_price + i
             if ask_price in service.sell_list.keys():
@@ -216,27 +219,40 @@ if __name__ == '__main__':
                 order_info = service.get_order_info(orderId)
                 if order_info:
                     if not order_info['isActive']:
-                        service.cancel_order(orderId, ask_price)
-                        del service.sell_list[ask_price]
-                        service.ask_maker(ask_price)
+                        # service.cancel_order(orderId, ask_price)
+                        # service.ask_maker(ask_price)
+                        task1 = executor.submit(service.cancel_order, orderId, ask_price, 'sell')
+                        all_task.append(task1)
+                        task2 = executor.submit(service.ask_maker, ask_price)
+                        all_task.append(task2)
                     else:
                         size_dff = order_info['size'] - order_info['dealSize']
                         if size_dff not in range(service.sizeMin, service.sizeMax):
                             if order_info['isActive']:
-                                service.cancel_order(order_info['id'], ask_price)
-                                del service.sell_list[ask_price]
+                                # service.cancel_order(order_info['id'], ask_price)
+                                task1 = executor.submit(service.cancel_order, order_info['id'], ask_price, 'sell')
+                                all_task.append(task1)
 
-                            service.ask_maker(ask_price)
+                            # service.ask_maker(ask_price)
+                            task2 = executor.submit(service.ask_maker, ask_price)
+                            all_task.append(task2)
 
             else:
                 service.ask_maker(ask_price)
+                task2 = executor.submit(service.ask_maker, ask_price)
+                all_task.append(task2)
+        wait(all_task, return_when=ALL_COMPLETED)
+        all_task.clear()
 
         bid_rand = service.market_price - service.maker_number + 1
         for k, v in list(service.buy_list.items()):
             # 判断范围，不在范围内的单撤掉
             if k not in range(bid_rand, service.market_price):
-                service.cancel_order(v['order_id'], k)
-                del service.buy_list[k]
+                # service.cancel_order(v['order_id'], k)
+                task = executor.submit(service.cancel_order, v['order_id'], k, 'buy')
+                all_task.append(task)
+        wait(all_task, return_when=ALL_COMPLETED)
+        all_task.clear()
         for i in range(1, service.maker_number):
             bid_price = service.market_price - i + 1
             if bid_price in service.buy_list.keys():
@@ -244,16 +260,28 @@ if __name__ == '__main__':
                 order_info = service.get_order_info(orderId)
                 if order_info:
                     if not order_info['isActive']:
-                        service.cancel_order(orderId, bid_price)
-                        del service.buy_list[bid_price]
-                        service.bid_maker(bid_price)
+                        # service.cancel_order(orderId, bid_price)
+                        # service.bid_maker(bid_price)
+                        task1 = executor.submit(service.cancel_order, orderId, bid_price, 'buy')
+                        all_task.append(task1)
+                        task2 = executor.submit(service.bid_maker, bid_price)
+                        all_task.append(task2)
+
                     else:
                         size_dff = order_info['size'] - order_info['dealSize']
                         if size_dff not in range(service.sizeMin, service.sizeMax):
                             if order_info['isActive']:
-                                service.cancel_order(order_info['id'], bid_price)
-                                del service.buy_list[bid_price]
+                                # service.cancel_order(order_info['id'], bid_price)
+                                task1 = executor.submit(service.cancel_order, orderId, bid_price, 'buy')
+                                all_task.append(task1)
 
-                            service.bid_maker(bid_price)
+                            # service.bid_maker(bid_price)
+                            task2 = executor.submit(service.bid_maker, bid_price)
+                            all_task.append(task2)
             else:
-                service.bid_maker(bid_price)
+                # service.bid_maker(bid_price)
+                task2 = executor.submit(service.bid_maker, bid_price)
+                all_task.append(task2)
+        wait(all_task, return_when=ALL_COMPLETED)
+        all_task.clear()
+
