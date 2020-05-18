@@ -69,7 +69,7 @@ class Kumex(object):
                 r = self.futureAPI.get_specific_ticker(self.ok_symbol)
         except Exception as e:
             logging.error(e)
-            time.sleep(1)
+            time.sleep(5)
         self.best_ask = int(float(r['best_ask']))
         # logging.info('最新卖一价格 = %s' % self.best_ask)
         self.best_bid = int(float(r['best_bid']))
@@ -193,13 +193,10 @@ if __name__ == '__main__':
     logging.info('---------------------------------------')
     logging.info('Service Start ......')
     service = Kumex()
-    # cnt = 0
     while 1:
-        # cnt += 1
-        # print(cnt)
         if service.side == 'taker':
             service.taker()
-            time.sleep(1)
+            time.sleep(0.5)
         else:
             service.get_market_price()
             service.get_active_orders()
@@ -210,19 +207,13 @@ if __name__ == '__main__':
             rand = random.randint(-20, 20)
             # service.market_price += rand
             ask_rand = service.market_price + 20
-            service.mutex.acquire()
             for k, v in list(service.sell_list.items()):
                 # 判断范围，不在范围内的单撤掉
                 if k not in range(service.market_price, ask_rand) and k in service.sell_list.keys():
                     # logging.info('k not in range(service.market_price = %s' % k)
+                    service.cancel_order(v['order_id'], k)
                     del service.sell_list[k]
-                    cancel_order = threading.Thread(target=service.cancel_order, args=(v['order_id'], k,))
-                    cancel_order.start()
-                    # service.cancel_order(v['order_id'], k)
-            service.mutex.release()
             # logging.info('sell maker 2 len(service.sell_list) = %s' % len(service.sell_list))
-            # logging.info(service.sell_list)
-            # logging.info('after cancel ---')
             # logging.info(service.sell_list)
 
             for i in range(1, service.maker_number):
@@ -235,52 +226,33 @@ if __name__ == '__main__':
                     if order_info:
                         if not order_info['isActive']:
                             # logging.info('not order_info[isActive] = %s' % ask_price)
-                            service.mutex.acquire()
-                            ask_order = threading.Thread(target=service.ask_maker, args=(ask_price,))
-                            ask_order.start()
-                            service.mutex.release()
-                            # service.ask_maker(ask_price)
+                            service.cancel_order(orderId, ask_price)
+                            del service.sell_list[ask_price]
+                            service.ask_maker(ask_price)
                         else:
                             size_dff = order_info['size'] - order_info['dealSize']
                             if size_dff not in range(service.sizeMin, service.sizeMax):
                                 if order_info['isActive']:
                                     # logging.info('del service.sell_list[ask_price] = %s' % ask_price)
+                                    service.cancel_order(order_info['id'], ask_price)
                                     del service.sell_list[ask_price]
-                                    service.mutex.acquire()
-                                    cancel_order = threading.Thread(target=service.cancel_order,
-                                                                    args=(order_info['id'], ask_price,))
-                                    cancel_order.start()
-                                    service.mutex.release()
-                                    # service.cancel_order(order_info['id'], ask_price)
-                                service.mutex.acquire()
-                                ask_order = threading.Thread(target=service.ask_maker, args=(ask_price,))
-                                ask_order.start()
-                                service.mutex.release()
-                                # service.ask_maker(ask_price)
+
+                                service.ask_maker(ask_price)
 
                 else:
                     # logging.info('target=service.ask_maker, = %s' % ask_price)
-                    service.mutex.acquire()
-                    ask_order = threading.Thread(target=service.ask_maker, args=(ask_price,))
-                    ask_order.start()
-                    service.mutex.release()
-                    # service.ask_maker(ask_price)
-            # logging.info('end cancel ---')
-            # logging.info(service.sell_list)
+                    service.ask_maker(ask_price)
             # logging.info('sell maker 3 len(service.sell_list) = %s' % len(service.sell_list))
             # logging.info(service.sell_list)
 
             # logging.info('buy maker 1 len(service.buy_list) = %s' % len(service.buy_list))
             # logging.info(service.buy_list)
             bid_rand = service.market_price - 20
-            service.mutex.acquire()
             for k, v in list(service.buy_list.items()):
                 # 判断范围，不在范围内的单撤掉
                 if k not in range(bid_rand, service.market_price):
+                    service.cancel_order(v['order_id'], k)
                     del service.buy_list[k]
-                    cancel_order = threading.Thread(target=service.cancel_order, args=(v['order_id'], k,))
-                    cancel_order.start()
-            service.mutex.release()
             # logging.info('buy maker 2 len(service.buy_list) = %s' % len(service.buy_list))
             # logging.info(service.buy_list)
             for i in range(1, service.maker_number):
@@ -290,29 +262,18 @@ if __name__ == '__main__':
                     order_info = service.get_order_info(orderId)
                     if order_info:
                         if not order_info['isActive']:
-                            service.mutex.acquire()
-                            bid_order = threading.Thread(target=service.ask_maker, args=(bid_price,))
-                            bid_order.start()
-                            service.mutex.release()
+                            service.cancel_order(orderId, bid_price)
+                            del service.buy_list[bid_price]
+                            service.bid_maker(bid_price)
                         else:
                             size_dff = order_info['size'] - order_info['dealSize']
                             if size_dff not in range(service.sizeMin, service.sizeMax):
                                 if order_info['isActive']:
+                                    service.cancel_order(order_info['id'], bid_price)
                                     del service.buy_list[bid_price]
-                                    service.mutex.acquire()
-                                    cancel_order = threading.Thread(target=service.cancel_order,
-                                                                    args=(order_info['id'], bid_price,))
-                                    cancel_order.start()
-                                    service.mutex.release()
 
-                                service.mutex.acquire()
-                                bid_order = threading.Thread(target=service.bid_maker, args=(bid_price,))
-                                bid_order.start()
-                                service.mutex.release()
+                                service.bid_maker(bid_price)
                 else:
-                    service.mutex.acquire()
-                    bid_order = threading.Thread(target=service.bid_maker, args=(bid_price,))
-                    bid_order.start()
-                    service.mutex.release()
+                    service.bid_maker(bid_price)
             # logging.info('buy maker 3 len(service.buy_list) = %s' % len(service.buy_list))
             # logging.info(service.buy_list)
