@@ -198,32 +198,24 @@ if __name__ == '__main__':
         service.get_market_price()
         service.taker()
         service.get_active_orders()
-        # break
-        logging.info('sell maker 1 len(service.sell_list) = %s' % len(service.sell_list))
-        logging.info(service.sell_list)
         # 价格浮动
         # rand = random.randint(-20, 20)
         # service.market_price += rand
-        ask_rand = service.market_price + 25
+        ask_rand = service.market_price + service.maker_number - 1
         for k, v in list(service.sell_list.items()):
             # 判断范围，不在范围内的单撤掉
             if k not in range(service.market_price, ask_rand) and k in service.sell_list.keys():
-                # logging.info('k not in range(service.market_price = %s' % k)
                 service.cancel_order(v['order_id'], k)
+
                 del service.sell_list[k]
-        logging.info('sell maker 2 len(service.sell_list) = %s' % len(service.sell_list))
-        logging.info(service.sell_list)
 
         for i in range(1, service.maker_number):
             ask_price = service.market_price + i
-            # logging.info('for loop ask_price = %s' % ask_price)
             if ask_price in service.sell_list.keys():
-                # logging.info('ask_price in keys loop = %s' % ask_price)
                 orderId = service.sell_list[ask_price]['order_id']
                 order_info = service.get_order_info(orderId)
                 if order_info:
                     if not order_info['isActive']:
-                        # logging.info('not order_info[isActive] = %s' % ask_price)
                         service.cancel_order(orderId, ask_price)
                         del service.sell_list[ask_price]
                         service.ask_maker(ask_price)
@@ -231,28 +223,20 @@ if __name__ == '__main__':
                         size_dff = order_info['size'] - order_info['dealSize']
                         if size_dff not in range(service.sizeMin, service.sizeMax):
                             if order_info['isActive']:
-                                # logging.info('del service.sell_list[ask_price] = %s' % ask_price)
                                 service.cancel_order(order_info['id'], ask_price)
                                 del service.sell_list[ask_price]
 
                             service.ask_maker(ask_price)
 
             else:
-                # logging.info('target=service.ask_maker, = %s' % ask_price)
                 service.ask_maker(ask_price)
-        logging.info('sell maker 3 len(service.sell_list) = %s' % len(service.sell_list))
-        logging.info(service.sell_list)
 
-        logging.info('buy maker 1 len(service.buy_list) = %s' % len(service.buy_list))
-        logging.info(service.buy_list)
-        bid_rand = service.market_price - 25
+        bid_rand = service.market_price - service.maker_number + 1
         for k, v in list(service.buy_list.items()):
             # 判断范围，不在范围内的单撤掉
             if k not in range(bid_rand, service.market_price):
                 service.cancel_order(v['order_id'], k)
                 del service.buy_list[k]
-        logging.info('buy maker 2 len(service.buy_list) = %s' % len(service.buy_list))
-        logging.info(service.buy_list)
         for i in range(1, service.maker_number):
             bid_price = service.market_price - i + 1
             if bid_price in service.buy_list.keys():
@@ -273,5 +257,3 @@ if __name__ == '__main__':
                             service.bid_maker(bid_price)
             else:
                 service.bid_maker(bid_price)
-        logging.info('buy maker 3 len(service.buy_list) = %s' % len(service.buy_list))
-        logging.info(service.buy_list)
