@@ -195,8 +195,8 @@ if __name__ == '__main__':
     while 1:
         if len(cancel_task) > 0:
             wait(cancel_task, return_when=ALL_COMPLETED)
+            cancel_task.clear()
 
-        cancel_task.clear()
         service.get_market_price()
         service.taker()
         service.get_active_orders()
@@ -214,9 +214,7 @@ if __name__ == '__main__':
             if k not in range(bid_rand, service.market_price) and k in service.sell_list.keys():
                 task = executor.submit(service.cancel_order, v['order_id'], k, 'buy')
                 cancel_task.append(task)
-        wait(cancel_task, return_when=ALL_COMPLETED)
-        cancel_task.clear()
-        maker_task.clear()
+
         for i in range(1, service.maker_number):
             # 卖盘
             ask_price = service.market_price + i
@@ -233,7 +231,7 @@ if __name__ == '__main__':
                         if size_dff not in range(service.sizeMin, service.sizeMax):
                             if order_info['isActive']:
                                 task = executor.submit(service.cancel_order, order_info['id'], ask_price, 'sell')
-                                maker_task.append(task)
+                                cancel_task.append(task)
 
                     task = executor.submit(service.ask_maker, ask_price)
                     maker_task.append(task)
@@ -249,14 +247,14 @@ if __name__ == '__main__':
                 if order_info:
                     if not order_info['isActive']:
                         task = executor.submit(service.cancel_order, orderId, bid_price, 'buy')
-                        maker_task.append(task)
+                        cancel_task.append(task)
 
                     else:
                         size_dff = order_info['size'] - order_info['dealSize']
                         if size_dff not in range(service.sizeMin, service.sizeMax):
                             if order_info['isActive']:
                                 task = executor.submit(service.cancel_order, orderId, bid_price, 'buy')
-                                maker_task.append(task)
+                                cancel_task.append(task)
 
                     task = executor.submit(service.bid_maker, bid_price)
                     maker_task.append(task)
@@ -265,3 +263,6 @@ if __name__ == '__main__':
                 maker_task.append(task)
 
         wait(maker_task, return_when=ALL_COMPLETED)
+        maker_task.clear()
+        wait(cancel_task, return_when=ALL_COMPLETED)
+        cancel_task.clear()
