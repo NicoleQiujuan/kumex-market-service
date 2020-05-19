@@ -68,58 +68,49 @@ class Kumex(object):
         except Exception as e:
             logging.error(e)
             time.sleep(5)
+        # 计算盘口价
         self.best_ask = int(float(r['best_ask']))
-        # logging.info('最新卖一价格 = %s' % self.best_ask)
         self.best_bid = int(float(r['best_bid']))
-        # logging.info('最新买一价格 = %s' % self.best_bid)
         self.market_price = int((self.best_ask + self.best_bid) / 2)
-        logging.info('最新盘口价格 = %s' % self.market_price)
+        logging.debug('最新盘口价格 = %s' % self.market_price)
 
     def taker(self):
-        best_bid_size = 0
-        # best_bid_price = 0
-        best_ask_size = 0
-        # best_ask_price = 0
-        best_flag = 0
         try:
             t = self.market.get_ticker(self.kumex_symbol)
             # logging.info(t)
             best_bid_size = t['bestBidSize']
-            # best_bid_price = t['bestBidPrice']
             best_ask_size = t['bestAskSize']
-            # best_ask_price = t['bestAskPrice']
             max_size = 100000
             if best_bid_size > max_size:
                 best_bid_size = max_size
             if best_ask_size > max_size:
                 best_ask_size = max_size
-            best_flag = 1
+            if best_ask_size > 0:
+                try:
+                    sell = self.trade.create_market_order(self.kumex_symbol, 'sell', '5', size=best_ask_size,
+                                                          type='market')
+                    logging.debug('在合约 %s 以数量= %s, 吃卖单,订单ID = %s' %
+                                  (self.kumex_symbol, best_ask_size, sell['orderId']))
+                except Exception as e:
+                    logging.error(e)
+            if best_bid_size > 0:
+                try:
+                    buy = self.trade.create_market_order(self.kumex_symbol, 'buy', '5', size=best_bid_size,
+                                                         type='market')
+                    logging.debug('在合约 %s 以数量= %s, 吃买单,订单ID = %s' %
+                                  (self.kumex_symbol, best_bid_size, buy['orderId']))
+                except Exception as e:
+                    logging.error(e)
         except Exception as e:
-            best_flag = 0
             logging.error(e)
-            # time.sleep(5)
             return
-
-        if best_flag > 0:
-            try:
-                sell = self.trade.create_market_order(self.kumex_symbol, 'sell', '5', size=best_ask_size, type='market')
-                logging.info('在合约 %s 以数量= %s, 吃卖单,订单ID = %s' %
-                             (self.kumex_symbol, best_ask_size, sell['orderId']))
-            except Exception as e:
-                logging.error(e)
-            try:
-                buy = self.trade.create_market_order(self.kumex_symbol, 'buy', '5', size=best_bid_size, type='market')
-                logging.info('在合约 %s 以数量= %s, 吃买单,订单ID = %s' %
-                             (self.kumex_symbol, best_bid_size, buy['orderId']))
-            except Exception as e:
-                logging.error(e)
 
     def ask_maker(self, p):
         try:
             m = random.randint(self.sizeMin, self.sizeMax)
             ask = self.trade.create_limit_order(self.kumex_symbol, 'sell', '5', m, p)
-            logging.info('当前盘口价格 = %s,在合约 %s 以数量= %s,价格= %s,创建了卖单,卖单ID = %s' %
-                         (self.market_price, self.kumex_symbol, m, p, ask['orderId']))
+            logging.debug('当前盘口价格 = %s,在合约 %s 以数量= %s,价格= %s,创建了卖单,卖单ID = %s' %
+                          (self.market_price, self.kumex_symbol, m, p, ask['orderId']))
             self.sell_list[p] = {
                 'price': p,
                 'side': 'sell',
@@ -133,8 +124,8 @@ class Kumex(object):
         try:
             m = random.randint(self.sizeMin, self.sizeMax)
             bid = self.trade.create_limit_order(self.kumex_symbol, 'buy', '5', m, p)
-            logging.info('当前盘口价格 = %s,在合约 %s 以数量= %s,价格= %s,创建了买单,卖单ID = %s' %
-                         (self.market_price, self.kumex_symbol, m, p, bid['orderId']))
+            logging.debug('当前盘口价格 = %s,在合约 %s 以数量= %s,价格= %s,创建了买单,卖单ID = %s' %
+                          (self.market_price, self.kumex_symbol, m, p, bid['orderId']))
             self.sell_list[p] = {
                 'price': p,
                 'side': 'buy',
@@ -147,13 +138,13 @@ class Kumex(object):
     def cancel_order(self, order_id, key, side):
         try:
             self.trade.cancel_order(order_id)
-            logging.info('当前盘口价 = %s,撤单 id = %s, key = %s' % (self.market_price, order_id, key))
+            logging.debug('当前盘口价 = %s,撤单 id = %s, key = %s' % (self.market_price, order_id, key))
             if side == 'sell':
                 del self.sell_list[key]
             elif side == 'buy':
                 del self.buy_list[key]
         except Exception as e:
-            logging.info('order_id = %s, key = %s' % (order_id, key))
+            logging.info('撤单时发生错误, order_id = %s, key = %s' % (order_id, key))
             logging.error(e)
 
     def get_order_info(self, order_id):
@@ -202,6 +193,10 @@ if __name__ == '__main__':
     maker_task = []
     cancel_task = []
     while 1:
+        if len(cancel_task) > 0:
+            wait(cancel_task, return_when=ALL_COMPLETED)
+
+        cancel_task.clear()
         service.get_market_price()
         service.taker()
         service.get_active_orders()
@@ -216,13 +211,16 @@ if __name__ == '__main__':
         bid_rand = service.market_price - service.maker_number + 1
         for k, v in list(service.buy_list.items()):
             # 判断范围，不在范围内的单撤掉
-            if k not in range(bid_rand, service.market_price):
-                # service.cancel_order(v['order_id'], k)
+            if k not in range(bid_rand, service.market_price) and k in service.sell_list.keys():
                 task = executor.submit(service.cancel_order, v['order_id'], k, 'buy')
                 cancel_task.append(task)
-
+        wait(cancel_task, return_when=ALL_COMPLETED)
+        cancel_task.clear()
+        maker_task.clear()
         for i in range(1, service.maker_number):
+            # 卖盘
             ask_price = service.market_price + i
+            # 如果该价格已存在订单，先将不合法的单撤掉，在补该价格的单
             if ask_price in service.sell_list.keys():
                 orderId = service.sell_list[ask_price]['order_id']
                 order_info = service.get_order_info(orderId)
@@ -243,7 +241,7 @@ if __name__ == '__main__':
             else:
                 task = executor.submit(service.ask_maker, ask_price)
                 maker_task.append(task)
-
+            # 买盘
             bid_price = service.market_price - i + 1
             if bid_price in service.buy_list.keys():
                 orderId = service.buy_list[bid_price]['order_id']
@@ -267,7 +265,3 @@ if __name__ == '__main__':
                 maker_task.append(task)
 
         wait(maker_task, return_when=ALL_COMPLETED)
-        maker_task.clear()
-        wait(cancel_task, return_when=ALL_COMPLETED)
-        cancel_task.clear()
-
