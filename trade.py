@@ -193,10 +193,6 @@ if __name__ == '__main__':
     maker_task = []
     cancel_task = []
     while 1:
-        if len(cancel_task) > 0:
-            wait(cancel_task, return_when=ALL_COMPLETED)
-            cancel_task.clear()
-
         service.get_market_price()
         service.taker()
         service.get_active_orders()
@@ -214,6 +210,8 @@ if __name__ == '__main__':
             if k not in range(bid_rand, service.market_price) and k in service.sell_list.keys():
                 task = executor.submit(service.cancel_order, v['order_id'], k, 'buy')
                 cancel_task.append(task)
+        wait(cancel_task, return_when=ALL_COMPLETED)
+        cancel_task.clear()
 
         for i in range(1, service.maker_number):
             # 卖盘
@@ -264,5 +262,4 @@ if __name__ == '__main__':
 
         wait(maker_task, return_when=ALL_COMPLETED)
         maker_task.clear()
-        wait(cancel_task, return_when=ALL_COMPLETED)
-        cancel_task.clear()
+
